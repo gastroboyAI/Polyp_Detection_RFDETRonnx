@@ -5,6 +5,7 @@ GPU-accelerated polyp detection using ONNX Runtime and DearPyGui
 
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -265,6 +266,13 @@ class App:
         self.frame_times = []
         self.display_width = 1280
         self.display_height = 720
+        
+        # Recording state
+        self.is_recording = False
+        self.video_writer = None
+        self.recording_path = None
+        self.recording_start_time = None
+        self.frames_recorded = 0
 
     def setup_ui(self):
         """Set up the DearPyGui interface."""
@@ -291,6 +299,12 @@ class App:
                 dpg.add_theme_color(dpg.mvThemeCol_Button, (66, 150, 250))
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (86, 170, 255))
         dpg.bind_theme(global_theme)
+        
+        # Red theme for recording button when active
+        with dpg.theme(tag="recording_theme"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, (200, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (230, 70, 70))
 
         # Main window
         with dpg.window(label="Main", tag="main_window"):
@@ -312,12 +326,15 @@ class App:
                 dpg.add_button(label="Pause", callback=self.pause, width=80)
                 dpg.add_button(label="Stop", callback=self.stop, width=80)
                 dpg.add_spacer(width=20)
+                dpg.add_button(label="Record", callback=self.toggle_recording, width=80, tag="record_button")
+                dpg.add_text("", tag="recording_indicator", color=(255, 50, 50))
+                dpg.add_spacer(width=20)
                 dpg.add_slider_int(
                     label="",
                     tag="frame_slider",
                     min_value=0,
                     max_value=1000,
-                    width=600,
+                    width=500,
                     callback=self.on_seek
                 )
                 dpg.add_spacer(width=10)
@@ -382,10 +399,93 @@ class App:
 
     def stop(self):
         """Stop and reset playback."""
+        # Stop recording if active
+        if self.is_recording:
+            self.stop_recording()
         self.video.reset()
         dpg.set_value("frame_slider", 0)
         self.update_time_display()
         dpg.set_value("status_bar", "Stopped")
+
+    def toggle_recording(self):
+        """Toggle video recording on/off."""
+        if self.is_recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def start_recording(self):
+        """Start recording video with detections."""
+        if self.video.cap is None:
+            dpg.set_value("status_bar", "Load a video first before recording!")
+            return
+        
+        # Create output filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save to Videos folder
+        videos_folder = Path.home() / "Videos" / "CADe_Recordings"
+        videos_folder.mkdir(parents=True, exist_ok=True)
+        
+        self.recording_path = videos_folder / f"polyp_detection_{timestamp}.mp4"
+        
+        # Use H.264 codec for best compatibility with YouTube/Facebook
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        
+        # Record at original video resolution for best quality
+        self.video_writer = cv2.VideoWriter(
+            str(self.recording_path),
+            fourcc,
+            self.video.fps,
+            (self.video.width, self.video.height)
+        )
+        
+        if not self.video_writer.isOpened():
+            dpg.set_value("status_bar", "Failed to start recording!")
+            self.video_writer = None
+            return
+        
+        self.is_recording = True
+        self.recording_start_time = time.time()
+        self.frames_recorded = 0
+        
+        # Update UI
+        dpg.configure_item("record_button", label="Stop Rec")
+        dpg.bind_item_theme("record_button", "recording_theme")
+        dpg.set_value("recording_indicator", "● REC")
+        dpg.set_value("status_bar", f"Recording to: {self.recording_path.name}")
+
+    def stop_recording(self):
+        """Stop recording and save the video."""
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
+        
+        self.is_recording = False
+        
+        # Calculate recording duration
+        if self.recording_start_time:
+            duration = time.time() - self.recording_start_time
+            duration_str = f"{int(duration // 60):02d}:{int(duration % 60):02d}"
+        else:
+            duration_str = "00:00"
+        
+        # Update UI
+        dpg.configure_item("record_button", label="Record")
+        dpg.bind_item_theme("record_button", "")
+        dpg.set_value("recording_indicator", "")
+        
+        if self.recording_path and self.recording_path.exists():
+            file_size_mb = self.recording_path.stat().st_size / (1024 * 1024)
+            dpg.set_value("status_bar", 
+                f"Saved: {self.recording_path.name} ({duration_str}, {file_size_mb:.1f} MB, {self.frames_recorded} frames)")
+            print(f"Recording saved to: {self.recording_path}")
+        else:
+            dpg.set_value("status_bar", "Recording stopped")
+        
+        self.recording_path = None
+        self.recording_start_time = None
+        self.frames_recorded = 0
 
     def on_seek(self, sender, app_data):
         """Handle scrubber seeking."""
@@ -428,11 +528,22 @@ class App:
         # Run inference
         detections = self.engine.predict(frame, threshold)
 
-        # Draw detections
-        display_frame = self.draw_detections(frame.copy(), detections)
+        # Draw detections on a copy for display
+        frame_with_detections = self.draw_detections(frame.copy(), detections)
+        
+        # Write to recording at original resolution (before resizing for display)
+        if self.is_recording and self.video_writer is not None:
+            self.video_writer.write(frame_with_detections)
+            self.frames_recorded += 1
+            
+            # Update recording indicator with time
+            if self.recording_start_time:
+                rec_duration = time.time() - self.recording_start_time
+                rec_time_str = f"{int(rec_duration // 60):02d}:{int(rec_duration % 60):02d}"
+                dpg.set_value("recording_indicator", f"● REC {rec_time_str}")
 
         # Resize for display
-        display_frame = cv2.resize(display_frame, (self.display_width, self.display_height))
+        display_frame = cv2.resize(frame_with_detections, (self.display_width, self.display_height))
 
         # Convert BGR to RGB and normalize for DearPyGui
         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
@@ -464,7 +575,11 @@ class App:
             else:
                 # End of video
                 self.video.is_playing = False
-                dpg.set_value("status_bar", "Playback complete")
+                # Stop recording if active
+                if self.is_recording:
+                    self.stop_recording()
+                else:
+                    dpg.set_value("status_bar", "Playback complete")
 
     def run(self):
         """Run the application."""
@@ -482,6 +597,8 @@ class App:
             dpg.render_dearpygui_frame()
 
         # Cleanup
+        if self.is_recording:
+            self.stop_recording()
         self.video.release()
         dpg.destroy_context()
 

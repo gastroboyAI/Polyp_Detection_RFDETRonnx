@@ -55,8 +55,23 @@ python main.py
 
 - **File → Open Video**: Load a video file for analysis
 - **Play/Pause/Stop**: Control video playback
+- **Record**: Record video clips with bounding boxes visible (saved as MP4)
 - **Scrubber**: Seek to any position in the video
 - **Confidence Threshold**: Adjust detection sensitivity (0.0 - 1.0)
+
+### Recording Clips for Social Media
+
+1. Load a video and navigate to the section you want to record
+2. Click the **Record** button (turns red when recording)
+3. Click **Play** to start playback while recording
+4. Click **Stop Rec** when done
+5. Your clip is saved to `Videos/CADe_Recordings/` folder as MP4
+
+The recorded video includes:
+- Original video resolution for best quality
+- Green bounding boxes around detected polyps
+- Confidence scores displayed
+- Ready to upload to YouTube, Facebook, or other platforms
 
 ## Model Architecture
 
