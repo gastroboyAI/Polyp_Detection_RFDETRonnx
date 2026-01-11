@@ -1,0 +1,16 @@
+# Core
+numpy>=1.24.0
+opencv-python>=4.8.0
+
+# ONNX Runtime with GPU support
+# NOTE: For RTX 5060 Ti (Blackwell/sm_120), use the custom build from:
+# https://huggingface.co/ussoewwin/onnxruntime-gpu-1.24.0
+# Download the .whl file and install manually:
+#   pip install onnxruntime_gpu-1.24.0-cp311-cp311-win_amd64.whl
+# The standard onnxruntime-gpu from PyPI does NOT support sm_120 yet.
+
+# GUI Framework - DearPyGui (GPU-accelerated)
+dearpygui>=2.0.0
+
+# PyQt6 for native Windows file dialogs
+PyQt6>=6.5.0
